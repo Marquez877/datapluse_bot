@@ -7,9 +7,10 @@
 import asyncio
 import time
 import threading
+import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from config import APIclient
-from ultra_aggressive import UltraAggressiveStrategy
+from ultra_aggressive import UltraAgressiveStrategy  # Исправлено название класса
 from resource_harvester import ResourceHarvester
 from zone_controller import ZoneController
 from rhythm_controller import GameRhythmController, DecisionMaker
@@ -17,8 +18,8 @@ from rhythm_controller import GameRhythmController, DecisionMaker
 class DominationMaster:
     def __init__(self, base_url="https://games-test.datsteam.dev"):
         self.base_url = base_url
-        self.api_client = APIclient(base_url)
-        self.ultra_strategy = UltraAggressiveStrategy()
+        self.api_client = APIclient(use_test_server=True)  # Исправлен аргумент
+        self.ultra_strategy = UltraAgressiveStrategy()  # Исправлено название класса
         self.zone_controller = ZoneController()
         self.rhythm_controller = GameRhythmController()
         self.decision_maker = DecisionMaker()
@@ -41,6 +42,7 @@ class DominationMaster:
     async def run_domination_cycle(self):
         """ГЛАВНЫЙ ЦИКЛ ДОМИНИРОВАНИЯ"""
         print("🔥 ЗАПУСК СИСТЕМЫ ПОЛНОГО ДОМИНИРОВАНИЯ! 🔥")
+        print("� Команда MACAN team уже зарегистрирована - сразу в бой!")
         
         async with ResourceHarvester(self.base_url) as harvester:
             turn_count = 0
@@ -55,6 +57,12 @@ class DominationMaster:
                     if not arena_data:
                         await asyncio.sleep(0.5)
                         continue
+                    
+                    # Проверяем, есть ли следующий ход
+                    next_turn_in = arena_data.get('nextTurnIn', 0)
+                    if next_turn_in <= 0:
+                        print("🏁 РАУНД ЗАВЕРШЕН!")
+                        break
                     
                     # Анализ игровой фазы
                     self.update_game_phase(arena_data)

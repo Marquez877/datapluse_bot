@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from collections import defaultdict
 import time
 import random
+import math  # Добавлен импорт math
 from typing import Dict, List, Tuple, Optional
 from config import *
 
@@ -26,6 +27,7 @@ class UltraAgressiveStrategy:
         self.resource_memory = {}
         self.turn_count = 0
         self.threat_assessment = defaultdict(int)
+        self.aggressiveness_level = 0.8  # Добавлен уровень агрессивности
         
         # НОВЫЕ СИСТЕМЫ ДОМИНИРОВАНИЯ
         self.ant_assignments = {}  # ID -> специальная задача
@@ -39,6 +41,44 @@ class UltraAgressiveStrategy:
         self.moves_blocked = 0
         self.resources_collected = 0
         self.territory_controlled = 0
+    
+    def analyze_situation(self, arena_data: Dict) -> Dict:
+        """Анализ ситуации для domination_master"""
+        ants = arena_data.get('ants', [])
+        visible_food = arena_data.get('food', [])
+        visible_enemies = arena_data.get('enemies', [])
+        
+        analysis = {
+            'actions': [],
+            'threat_level': len(visible_enemies),
+            'resource_opportunities': len(visible_food),
+            'army_strength': len(ants),
+            'recommendations': []
+        }
+        
+        # Рекомендации на основе анализа
+        workers = [ant for ant in ants if ant['type'] == 0]
+        fighters = [ant for ant in ants if ant['type'] == 1]
+        
+        if len(ants) < 10:
+            analysis['recommendations'].append('EXPAND_ARMY')
+        
+        if len(visible_food) > len(workers):
+            analysis['recommendations'].append('INCREASE_WORKERS')
+        
+        if len(visible_enemies) > 0 and len(fighters) < 3:
+            analysis['recommendations'].append('BUILD_DEFENSE')
+        
+        # Генерируем базовые действия
+        for ant in ants[:5]:  # Ограничиваем количество действий
+            if ant['type'] == 0:  # Рабочий
+                analysis['actions'].append({
+                    'type': 'explore',
+                    'ant_id': ant['id'],
+                    'priority': 70
+                })
+        
+        return analysis
         
     def assign_specialized_roles(self, ants: List[Dict], arena_data: Dict):
         """СПЕЦИАЛИЗАЦИЯ: каждому муравью - четкая роль"""
@@ -391,6 +431,79 @@ class SuperAgressiveAPIClient(APIclient):
             target_pos = (closest_home['q'], closest_home['r'])
             
             return self.find_path_astar(ant_pos, target_pos, arena_data, max_cost=10)
+        
+        return [{'q': ant['q'], 'r': ant['r']}]
+    
+    def get_neighbors(self, q: int, r: int) -> List[Tuple[int, int]]:
+        """Получение соседних гексов"""
+        directions = [(+1, 0), (+1, -1), (0, -1), (-1, 0), (-1, +1), (0, +1)]
+        return [(q + dq, r + dr) for dq, dr in directions]
+    
+    def execute_attack_formation(self, ant: Dict, assignment: str, arena_data: Dict) -> List[Dict]:
+        """Выполнение атакующей формации"""
+        ant_pos = (ant['q'], ant['r'])
+        visible_enemies = arena_data.get('enemies', [])
+        
+        if visible_enemies:
+            # Атакуем ближайшего врага
+            closest_enemy = min(visible_enemies, 
+                              key=lambda e: self.hex_distance(ant_pos, (e['q'], e['r'])))
+            target_pos = (closest_enemy['q'], closest_enemy['r'])
+            return self.find_path_astar(ant_pos, target_pos, arena_data, max_cost=10)
+        
+        # Если врагов нет, патрулируем
+        return self.default_aggressive_move(ant, arena_data)
+    
+    def defend_base_position(self, ant: Dict, arena_data: Dict) -> List[Dict]:
+        """Защита базы"""
+        ant_pos = (ant['q'], ant['r'])
+        home_coords = arena_data.get('home', [])
+        
+        if home_coords:
+            # Держимся рядом с базой
+            home_center = home_coords[0]
+            home_pos = (home_center['q'], home_center['r'])
+            
+            # Если далеко от базы, возвращаемся
+            distance = self.hex_distance(ant_pos, home_pos)
+            if distance > 5:
+                return self.find_path_astar(ant_pos, home_pos, arena_data, max_cost=8)
+        
+        return [{'q': ant['q'], 'r': ant['r']}]
+    
+    def scout_assigned_zone(self, ant: Dict, assignment: str, arena_data: Dict) -> List[Dict]:
+        """Разведка назначенной зоны"""
+        ant_pos = (ant['q'], ant['r'])
+        
+        # Извлекаем номер зоны из задания
+        try:
+            zone_id = int(assignment.split('_')[-1])
+            if zone_id < len(self.strategy.expansion_zones):
+                zone = self.strategy.expansion_zones[zone_id]
+                target_pos = zone['center']
+                return self.find_path_astar(ant_pos, target_pos, arena_data, max_cost=20)
+        except (ValueError, IndexError):
+            pass
+        
+        return self.default_aggressive_move(ant, arena_data)
+    
+    def default_aggressive_move(self, ant: Dict, arena_data: Dict) -> List[Dict]:
+        """Базовое агрессивное движение"""
+        ant_pos = (ant['q'], ant['r'])
+        visible_food = arena_data.get('food', [])
+        
+        if visible_food:
+            # Движемся к ближайшему ресурсу
+            closest_food = min(visible_food, 
+                             key=lambda f: self.hex_distance(ant_pos, (f['q'], f['r'])))
+            target_pos = (closest_food['q'], closest_food['r'])
+            return self.find_path_astar(ant_pos, target_pos, arena_data, max_cost=10)
+        
+        # Если ресурсов нет, исследуем случайно
+        neighbors = self.get_neighbors(*ant_pos)
+        if neighbors:
+            target = random.choice(neighbors)
+            return [{'q': ant_pos[0], 'r': ant_pos[1]}, {'q': target[0], 'r': target[1]}]
         
         return [{'q': ant['q'], 'r': ant['r']}]
 
